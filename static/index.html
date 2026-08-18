@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Desenhador2D</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <h1>Desenhador2D</h1>
+    <div id="controls">
+      <label for="tool">Ferramenta:</label>
+      <select id="tool">
+        <option value="point">Ponto (1 clique)</option>
+        <option value="line">Reta (2 cliques A→B)</option>
+      </select>
+      <select id="filter">
+        <option value="all">Todos</option>
+        <option value="point">Ponto</option>
+        <option value="line">Reta</option>
+        <option value="circle">Círculo</option>
+        <option value="rect">Retângulo</option>
+        <option value="triangle">Triângulo</option>
+      </select>
+      <button id="redraw">Redesenhar</button>
+      <button id="clear">Limpar Tela</button>
+      <button id="refresh">Atualizar</button>
+    </div>
+
+    <div id="canvas" />
+
+    <div id="editor">
+      <h3>Adicionar primitivo (JSON)</h3>
+      <textarea id="prim" rows="6" cols="40">{"type":"point","x":10,"y":10}</textarea>
+      <br/>
+      <button id="addPrim">Adicionar</button>
+    </div>
+
+    <div id="logContainer">
+      <h3>Logs</h3>
+      <div id="log"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

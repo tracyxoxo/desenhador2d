@@ -1,0 +1,12 @@
+body { font-family: Arial, sans-serif; padding: 12px; }
+#canvas { display: grid; gap: 1px; background: #222; margin-top: 12px; }
+.pixel { width: 10px; height: 10px; background: #111; }
+.pixel.on { background: #0f0; }
+#pixel.selected { outline: 2px solid yellow; }
+.pixel.selected { box-shadow: 0 0 0 2px rgba(255,255,0,0.6) inset; }
+#controls { display: flex; gap: 8px; align-items: center; }
+#editor { margin-top: 12px; }
+
+#logContainer { margin-top: 12px; }
+#log { background: #000; color: #0f0; padding: 8px; height: 160px; overflow: auto; font-family: monospace; font-size: 12px; }
+.log-line { padding: 2px 0; }
