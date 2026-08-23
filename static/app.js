@@ -3,7 +3,9 @@ const canvasEl = document.getElementById("canvas");
 const filterEl = document.getElementById("filter");
 const toolEl = document.getElementById('tool');
 const logEl = document.getElementById('log');
-let pendingLine = null; // {x,y,el}
+
+// Estado para cliques multi-passo
+let pendingClicks = []; // armazena {x, y, el} dos cliques intermediarios
 
 function appendLog(text) {
   const t = new Date().toLocaleTimeString();
@@ -12,9 +14,7 @@ function appendLog(text) {
   p.className = 'log-line';
   if (logEl) {
     logEl.appendChild(p);
-    // keep last 200 lines
     while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
-    // scroll to bottom
     logEl.scrollTop = logEl.scrollHeight;
   }
   console.log(text);
@@ -23,6 +23,11 @@ function appendLog(text) {
 async function fetchState() {
   const r = await fetch('/state');
   state = await r.json();
+}
+
+function clearPendingClicks() {
+  pendingClicks.forEach(c => { if (c.el) c.el.classList.remove('selected'); });
+  pendingClicks = [];
 }
 
 function renderGrid() {
@@ -35,102 +40,215 @@ function renderGrid() {
       const d = document.createElement('div');
       d.className = state.pixels[y][x] ? 'pixel on' : 'pixel';
       d.dataset.x = x; d.dataset.y = y;
-      d.addEventListener('click', async (e) => {
-        const tool = toolEl ? toolEl.value : 'point';
-        if (tool === 'point') {
-          const on = !d.classList.contains('on');
-          appendLog(`Pixel click (${x},${y}) -> ${on}`);
-          try {
-            const res = await fetch('/pixel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({x,y,on})});
-            if (!res.ok) appendLog(`Pixel update failed: ${res.status}`);
-            else d.classList.toggle('on');
-          } catch (err) { appendLog('Pixel update error: '+err); }
-          return;
-        }
-
-        if (tool === 'line') {
-          // two-click line: first click sets start, second click creates primitive
-          if (!pendingLine) {
-            pendingLine = {x, y, el: d};
-            d.classList.add('selected');
-            appendLog(`Line start set at (${x},${y})`);
-          } else {
-            const a = pendingLine;
-            const b = {x,y};
-            appendLog(`Line end set at (${x},${y}), creating line ${a.x},${a.y} -> ${b.x},${b.y}`);
-            // remove visual mark
-            if (a.el) a.el.classList.remove('selected');
-            pendingLine = null;
-            // send primitive to server
-            const payload = {type:'line', x0:a.x, y0:a.y, x1:b.x, y1:b.y};
-            try {
-              const res = await fetch('/primitive', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-              const txt = await res.text();
-              if (!res.ok) {
-                appendLog('Add primitive failed: '+res.status+' - '+txt);
-                alert('Falha ao adicionar primitivo: '+txt);
-              } else {
-                appendLog('Primitive added: '+txt);
-                // ask server to redraw
-                await fetch('/redraw', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({kind:'all'})});
-                await fetchState(); renderGrid();
-              }
-            } catch (err) { appendLog('Error creating line: '+err); }
-          }
-          return;
-        }
-        // other tools could be added here
-      });
+      d.addEventListener('click', (e) => handlePixelClick(d, x, y));
       canvasEl.appendChild(d);
     }
   }
 }
 
+async function handlePixelClick(d, x, y) {
+  const tool = toolEl ? toolEl.value : 'point';
+
+  // ---- PONTO (1 clique) ----
+  if (tool === 'point') {
+    const on = !d.classList.contains('on');
+    appendLog(`Pixel click (${x},${y}) -> ${on}`);
+    try {
+      const res = await fetch('/pixel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({x,y,on})});
+      if (!res.ok) appendLog(`Pixel update failed: ${res.status}`);
+      else d.classList.toggle('on');
+    } catch (err) { appendLog('Pixel update error: '+err); }
+    return;
+  }
+
+  // ---- RETA (2 cliques) ----
+  if (tool === 'line') {
+    if (pendingClicks.length === 0) {
+      pendingClicks.push({x, y, el: d});
+      d.classList.add('selected');
+      appendLog(`Reta: ponto A definido em (${x},${y})`);
+    } else {
+      const a = pendingClicks[0];
+      appendLog(`Reta: ponto B definido em (${x},${y}), criando reta (${a.x},${a.y}) -> (${x},${y})`);
+      clearPendingClicks();
+      const payload = {type:'line', x0:a.x, y0:a.y, x1:x, y1:y};
+      await sendPrimitive(payload);
+    }
+    return;
+  }
+
+  // ---- CIRCULO (2 cliques: centro + borda) ----
+  if (tool === 'circle') {
+    if (pendingClicks.length === 0) {
+      pendingClicks.push({x, y, el: d});
+      d.classList.add('selected');
+      appendLog(`Círculo: centro definido em (${x},${y})`);
+    } else {
+      const c = pendingClicks[0];
+      const r = Math.round(Math.sqrt(Math.pow(x - c.x, 2) + Math.pow(y - c.y, 2)));
+      appendLog(`Círculo: borda em (${x},${y}), raio=${r}, centro=(${c.x},${c.y})`);
+      clearPendingClicks();
+      const payload = {type:'circle', xc:c.x, yc:c.y, r: r};
+      await sendPrimitive(payload);
+    }
+    return;
+  }
+
+  // ---- RETANGULO (2 cliques: canto superior-esq + canto inferior-dir) ----
+  if (tool === 'rect') {
+    if (pendingClicks.length === 0) {
+      pendingClicks.push({x, y, el: d});
+      d.classList.add('selected');
+      appendLog(`Retângulo: canto A definido em (${x},${y})`);
+    } else {
+      const a = pendingClicks[0];
+      const rx = Math.min(a.x, x);
+      const ry = Math.min(a.y, y);
+      const rw = Math.abs(x - a.x) + 1;
+      const rh = Math.abs(y - a.y) + 1;
+      appendLog(`Retângulo: canto B em (${x},${y}), pos=(${rx},${ry}) ${rw}x${rh}`);
+      clearPendingClicks();
+      const payload = {type:'rect', x:rx, y:ry, w:rw, h:rh};
+      await sendPrimitive(payload);
+    }
+    return;
+  }
+
+  // ---- TRIANGULO (3 cliques) ----
+  if (tool === 'triangle') {
+    if (pendingClicks.length < 2) {
+      pendingClicks.push({x, y, el: d});
+      d.classList.add('selected');
+      appendLog(`Triângulo: vértice ${pendingClicks.length} definido em (${x},${y}) — faltam ${3 - pendingClicks.length}`);
+    } else {
+      const a = pendingClicks[0];
+      const b = pendingClicks[1];
+      appendLog(`Triângulo: vértice 3 em (${x},${y}), criando triângulo (${a.x},${a.y})-(${b.x},${b.y})-(${x},${y})`);
+      clearPendingClicks();
+      const payload = {type:'triangle', x0:a.x, y0:a.y, x1:b.x, y1:b.y, x2:x, y2:y};
+      await sendPrimitive(payload);
+    }
+    return;
+  }
+}
+
+/**
+ * Envia um primitivo ao servidor, pede redraw e atualiza a grade.
+ */
+async function sendPrimitive(payload) {
+  try {
+    const res = await fetch('/primitive', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const body = await res.text();
+    if (!res.ok) {
+      appendLog('Erro ao adicionar primitivo: ' + res.status + ' - ' + body);
+      alert('Falha ao adicionar primitivo: ' + body);
+    } else {
+      appendLog('Primitivo adicionado: ' + body);
+      await fetchState();
+      renderGrid();
+      updateEdInfo();
+    }
+  } catch (err) { appendLog('Erro ao criar primitivo: ' + err); }
+}
+
+/**
+ * Atualiza as informacoes da ED na interface
+ */
+async function updateEdInfo() {
+  try {
+    const res = await fetch('/ed');
+    const ed = await res.json();
+    const info = document.getElementById('edInfo');
+    if (ed.length === 0) {
+      info.textContent = 'Nenhum primitivo na ED.';
+    } else {
+      const counts = {};
+      ed.forEach(p => { counts[p.type] = (counts[p.type] || 0) + 1; });
+      const parts = Object.entries(counts).map(([k,v]) => `${v} ${k}(s)`);
+      info.textContent = `ED contém ${ed.length} primitivo(s): ${parts.join(', ')}`;
+    }
+  } catch (err) { appendLog('Erro ao consultar ED: ' + err); }
+}
+
+/**
+ * Mostra a lista detalhada da ED
+ */
+async function showEdList() {
+  try {
+    const res = await fetch('/ed');
+    const ed = await res.json();
+    const container = document.getElementById('edList');
+    container.innerHTML = '';
+    if (ed.length === 0) {
+      container.textContent = 'ED vazia.';
+      return;
+    }
+    ed.forEach((p, i) => {
+      const div = document.createElement('div');
+      div.className = 'ed-item';
+      const paramStr = Object.entries(p.params).map(([k,v]) => `${k}=${v}`).join(', ');
+      div.textContent = `#${i+1} [${p.type}] ${paramStr}  (id: ${p.id.slice(0,8)}...)`;
+      container.appendChild(div);
+    });
+  } catch (err) { appendLog('Erro ao listar ED: ' + err); }
+}
+
 async function init() {
   await fetchState();
   renderGrid();
+  updateEdInfo();
 }
 
+// ---- Event Listeners ----
+
+// Redesenhar (filtrado por tipo)
 document.getElementById('redraw').addEventListener('click', async () => {
   const k = filterEl.value;
-  appendLog(`Redraw requested: kind=${k}`);
+  appendLog(`Redesenhar solicitado: tipo=${k}`);
   try {
     const res = await fetch('/redraw', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({kind: k})});
-    if (!res.ok) appendLog(`Redraw failed: ${res.status}`);
-    else appendLog('Redraw completed');
-  } catch (err) { appendLog('Redraw error: '+err); }
+    if (!res.ok) appendLog(`Redesenhar falhou: ${res.status}`);
+    else appendLog('Redesenho concluído');
+  } catch (err) { appendLog('Erro ao redesenhar: '+err); }
   await fetchState(); renderGrid();
 });
 
+// Limpar tela (não apaga a ED!)
 document.getElementById('clear').addEventListener('click', async () => {
-  appendLog('Clear screen requested');
+  appendLog('Limpar tela solicitado (ED preservada)');
   try {
     const res = await fetch('/clear', {method:'POST'});
-    if (!res.ok) appendLog(`Clear failed: ${res.status}`);
-    else appendLog('Screen cleared');
-  } catch (err) { appendLog('Clear error: '+err); }
+    if (!res.ok) appendLog(`Limpar falhou: ${res.status}`);
+    else appendLog('Tela limpa — ED preservada');
+  } catch (err) { appendLog('Erro ao limpar: '+err); }
   await fetchState(); renderGrid();
 });
 
-document.getElementById('refresh').addEventListener('click', async () => { await fetchState(); renderGrid(); });
+// Atualizar
+document.getElementById('refresh').addEventListener('click', async () => {
+  appendLog('Atualização manual solicitada');
+  await fetchState(); renderGrid(); updateEdInfo();
+});
 
-document.getElementById('refresh').addEventListener('click', () => appendLog('Manual refresh requested'));
+// Listar ED
+document.getElementById('showEd').addEventListener('click', () => {
+  showEdList();
+});
 
+// Limpar cliques pendentes quando trocar de ferramenta
+toolEl.addEventListener('change', () => {
+  clearPendingClicks();
+  appendLog(`Ferramenta alterada para: ${toolEl.value}`);
+});
+
+// Adicionar primitivo via JSON
 document.getElementById('addPrim').addEventListener('click', async () => {
-  const txt = document.getElementById('prim').value;
+  const raw = document.getElementById('prim').value;
   try {
-    const payload = JSON.parse(txt);
-    appendLog('Adding primitive: '+JSON.stringify(payload));
-    const res = await fetch('/primitive', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-    const txt = await res.text();
-    if (!res.ok) {
-      appendLog('Add primitive failed: '+res.status+' - '+txt);
-      alert('Falha ao adicionar primitivo: '+txt);
-    } else {
-      appendLog('Primitive added: '+txt);
-      alert('Primitivo adicionado à ED');
-    }
-  } catch (e) { alert('JSON inválido'); }
+    const payload = JSON.parse(raw);
+    appendLog('Adicionando primitivo via JSON: ' + JSON.stringify(payload));
+    await sendPrimitive(payload);
+  } catch (e) { alert('JSON inválido: ' + e.message); }
 });
 
 init();

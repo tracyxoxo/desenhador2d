@@ -12,21 +12,33 @@
       <select id="tool">
         <option value="point">Ponto (1 clique)</option>
         <option value="line">Reta (2 cliques A→B)</option>
+        <option value="circle">Círculo (2 cliques: centro → borda)</option>
+        <option value="rect">Retângulo (2 cliques: canto → canto oposto)</option>
+        <option value="triangle">Triângulo (3 cliques: A → B → C)</option>
       </select>
+
+      <label for="filter">Redesenhar:</label>
       <select id="filter">
         <option value="all">Todos</option>
-        <option value="point">Ponto</option>
-        <option value="line">Reta</option>
-        <option value="circle">Círculo</option>
-        <option value="rect">Retângulo</option>
-        <option value="triangle">Triângulo</option>
+        <option value="point">Somente Pontos</option>
+        <option value="line">Somente Retas</option>
+        <option value="circle">Somente Círculos</option>
+        <option value="rect">Somente Retângulos</option>
+        <option value="triangle">Somente Triângulos</option>
       </select>
       <button id="redraw">Redesenhar</button>
       <button id="clear">Limpar Tela</button>
       <button id="refresh">Atualizar</button>
     </div>
 
-    <div id="canvas" />
+    <div id="canvas"></div>
+
+    <div id="edSection">
+      <h3>Estrutura de Dados (ED)</h3>
+      <p id="edInfo">Nenhum primitivo na ED.</p>
+      <button id="showEd">Listar ED</button>
+      <div id="edList"></div>
+    </div>
 
     <div id="editor">
       <h3>Adicionar primitivo (JSON)</h3>

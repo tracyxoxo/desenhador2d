@@ -39,6 +39,8 @@ async def add_primitive(payload: dict):
         p = ed.create_from_payload(payload)
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    # Desenha apenas o novo primitivo (sem limpar a tela)
+    p.draw(canvas)
     return JSONResponse({"ok": True, "id": p.id})
 
 
