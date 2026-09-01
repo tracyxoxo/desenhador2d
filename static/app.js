@@ -37,8 +37,10 @@ function renderGrid() {
   canvasEl.style.gridTemplateRows = `repeat(${h}, 10px)`;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
+      const value = Number(state.pixels[y][x]) || 0;
       const d = document.createElement('div');
-      d.className = state.pixels[y][x] ? 'pixel on' : 'pixel';
+      d.className = value > 0 ? 'pixel on' : 'pixel';
+      d.style.opacity = String(value / 255);
       d.dataset.x = x; d.dataset.y = y;
       d.addEventListener('click', (e) => handlePixelClick(d, x, y));
       canvasEl.appendChild(d);
@@ -51,12 +53,16 @@ async function handlePixelClick(d, x, y) {
 
   // ---- PONTO (1 clique) ----
   if (tool === 'point') {
-    const on = !d.classList.contains('on');
+    const currentOpacity = Number(d.style.opacity || 0);
+    const on = currentOpacity < 0.5;
     appendLog(`Pixel click (${x},${y}) -> ${on}`);
     try {
       const res = await fetch('/pixel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({x,y,on})});
       if (!res.ok) appendLog(`Pixel update failed: ${res.status}`);
-      else d.classList.toggle('on');
+      else {
+        d.classList.toggle('on', on);
+        d.style.opacity = on ? '1' : '0';
+      }
     } catch (err) { appendLog('Pixel update error: '+err); }
     return;
   }

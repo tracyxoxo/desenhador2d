@@ -6,7 +6,7 @@ from models import Canvas, ED
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-WIDTH, HEIGHT = 64, 48
+WIDTH, HEIGHT = 128, 128
 
 canvas = Canvas(WIDTH, HEIGHT)
 ed = ED()

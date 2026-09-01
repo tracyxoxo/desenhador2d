@@ -64,14 +64,17 @@ Aplicação web para desenho de primitivos gráficos 2D com manipulação direta
 | `static/app.js` | Lógica do frontend — ferramentas interativas, comunicação com o backend |
 | `static/styles.css` | Estilos visuais da interface |
 | `iniciar.bat` | Script para iniciar o projeto com um duplo clique |
+| `README.md` | Documentação do projeto e descrição dos algoritmos |
 
 ### Algoritmos implementados
 
-- **Ponto**: ativa diretamente um pixel na matriz booleana.
-- **Reta**: [Algoritmo de Bresenham](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm) — calcula pixel a pixel quais posições ligar para formar a reta, sem usar aritmética de ponto flutuante.
+- **Ponto**: ativa diretamente um pixel na matriz booleana e também pode distribuir intensidade entre pixels vizinhos para suavização visual.
+- **Reta**: [Algoritmo de Xiaolin Wu](https://en.wikipedia.org/wiki/Xiaolin_Wu%27s_line_algorithm) — produz linhas com anti-aliasing, distribuindo a intensidade entre os pixels adjacentes para reduzir o efeito de degraus e deixar a borda mais suave.
 - **Círculo**: [Midpoint Circle Algorithm](https://en.wikipedia.org/wiki/Midpoint_circle_algorithm) — utiliza a simetria de 8 pontos para calcular os pixels da circunferência.
-- **Retângulo**: composto por 4 retas (Bresenham).
-- **Triângulo**: composto por 3 retas (Bresenham).
+- **Retângulo**: composto por 4 retas;
+- **Triângulo**: composto por 3 retas.
+
+> Observação: a reta foi priorizada com o algoritmo de Xiaolin Wu para obter um resultado visual mais suave em um canvas discreto. Os outros primitivos continuam seguindo a mesma abordagem de rasterização por pontos, com suporte para suavização incremental.
 
 ### ED (Estrutura de Dados)
 
