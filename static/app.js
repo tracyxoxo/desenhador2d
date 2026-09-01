@@ -135,8 +135,8 @@ function renderGrid() {
   canvasEl.innerHTML = '';
   const w = state.width, h = state.height;
   const previewMap = renderPreviewGrid();
-  canvasEl.style.gridTemplateColumns = `repeat(${w}, 10px)`;
-  canvasEl.style.gridTemplateRows = `repeat(${h}, 10px)`;
+  canvasEl.style.gridTemplateColumns = `repeat(${w}, var(--pixel-size))`;
+  canvasEl.style.gridTemplateRows = `repeat(${h}, var(--pixel-size))`;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const value = Number(state.pixels[y][x]) || 0;
