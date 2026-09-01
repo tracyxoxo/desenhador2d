@@ -6,6 +6,107 @@ const logEl = document.getElementById('log');
 
 // Estado para cliques multi-passo
 let pendingClicks = []; // armazena {x, y, el} dos cliques intermediarios
+let dragState = null; // {tool, start, end}
+
+function getCellFromEvent(event) {
+  const target = event.target.closest('.pixel');
+  if (!target) return null;
+  return {
+    x: Number(target.dataset.x),
+    y: Number(target.dataset.y),
+    el: target
+  };
+}
+
+function getLinePoints(x0, y0, x1, y1) {
+  const points = [];
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  let x = x0;
+  let y = y0;
+
+  while (true) {
+    points.push({x, y});
+    if (x === x1 && y === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+
+  return points;
+}
+
+function getCirclePoints(xc, yc, r) {
+  const points = new Set();
+  let x = 0;
+  let y = r;
+  let d = 1 - r;
+
+  while (y >= x) {
+    const pts = [
+      [xc + x, yc + y], [xc - x, yc + y], [xc + x, yc - y], [xc - x, yc - y],
+      [xc + y, yc + x], [xc - y, yc + x], [xc + y, yc - x], [xc - y, yc - x]
+    ];
+    pts.forEach(([px, py]) => points.add(`${px},${py}`));
+
+    x += 1;
+    if (d < 0) {
+      d += 2 * x + 1;
+    } else {
+      y -= 1;
+      d += 2 * (x - y) + 1;
+    }
+  }
+
+  return [...points].map(key => {
+    const [x, y] = key.split(',').map(Number);
+    return {x, y};
+  });
+}
+
+function getRectPoints(x0, y0, x1, y1) {
+  const left = Math.min(x0, x1);
+  const right = Math.max(x0, x1);
+  const top = Math.min(y0, y1);
+  const bottom = Math.max(y0, y1);
+  const points = [];
+  for (let y = top; y <= bottom; y++) {
+    for (let x = left; x <= right; x++) {
+      if (x === left || x === right || y === top || y === bottom) {
+        points.push({x, y});
+      }
+    }
+  }
+  return points;
+}
+
+function renderPreviewGrid() {
+  if (!dragState || !dragState.start || !dragState.end) return new Map();
+  const previewMap = new Map();
+  const { tool, start, end } = dragState;
+  let points = [];
+
+  if (tool === 'line') {
+    points = getLinePoints(start.x, start.y, end.x, end.y);
+  } else if (tool === 'circle') {
+    const r = Math.round(Math.hypot(end.x - start.x, end.y - start.y));
+    points = getCirclePoints(start.x, start.y, r);
+  } else if (tool === 'rect') {
+    points = getRectPoints(start.x, start.y, end.x, end.y);
+  }
+
+  points.forEach(({x, y}) => previewMap.set(`${x},${y}`, true));
+  return previewMap;
+}
 
 function appendLog(text) {
   const t = new Date().toLocaleTimeString();
@@ -33,16 +134,22 @@ function clearPendingClicks() {
 function renderGrid() {
   canvasEl.innerHTML = '';
   const w = state.width, h = state.height;
+  const previewMap = renderPreviewGrid();
   canvasEl.style.gridTemplateColumns = `repeat(${w}, 10px)`;
   canvasEl.style.gridTemplateRows = `repeat(${h}, 10px)`;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const value = Number(state.pixels[y][x]) || 0;
+      const isPreview = previewMap.has(`${x},${y}`);
       const d = document.createElement('div');
       d.className = value > 0 ? 'pixel on' : 'pixel';
-      d.style.opacity = String(value / 255);
+      if (isPreview) d.classList.add('preview');
+      d.style.opacity = String(isPreview ? 1 : value / 255);
       d.dataset.x = x; d.dataset.y = y;
       d.addEventListener('click', (e) => handlePixelClick(d, x, y));
+      d.addEventListener('pointerdown', handleCanvasPointerDown);
+      d.addEventListener('pointermove', handleCanvasPointerMove);
+      d.addEventListener('pointerup', handleCanvasPointerUp);
       canvasEl.appendChild(d);
     }
   }
@@ -51,7 +158,6 @@ function renderGrid() {
 async function handlePixelClick(d, x, y) {
   const tool = toolEl ? toolEl.value : 'point';
 
-  // ---- PONTO (1 clique) ----
   if (tool === 'point') {
     const currentOpacity = Number(d.style.opacity || 0);
     const on = currentOpacity < 0.5;
@@ -67,60 +173,6 @@ async function handlePixelClick(d, x, y) {
     return;
   }
 
-  // ---- RETA (2 cliques) ----
-  if (tool === 'line') {
-    if (pendingClicks.length === 0) {
-      pendingClicks.push({x, y, el: d});
-      d.classList.add('selected');
-      appendLog(`Reta: ponto A definido em (${x},${y})`);
-    } else {
-      const a = pendingClicks[0];
-      appendLog(`Reta: ponto B definido em (${x},${y}), criando reta (${a.x},${a.y}) -> (${x},${y})`);
-      clearPendingClicks();
-      const payload = {type:'line', x0:a.x, y0:a.y, x1:x, y1:y};
-      await sendPrimitive(payload);
-    }
-    return;
-  }
-
-  // ---- CIRCULO (2 cliques: centro + borda) ----
-  if (tool === 'circle') {
-    if (pendingClicks.length === 0) {
-      pendingClicks.push({x, y, el: d});
-      d.classList.add('selected');
-      appendLog(`Círculo: centro definido em (${x},${y})`);
-    } else {
-      const c = pendingClicks[0];
-      const r = Math.round(Math.sqrt(Math.pow(x - c.x, 2) + Math.pow(y - c.y, 2)));
-      appendLog(`Círculo: borda em (${x},${y}), raio=${r}, centro=(${c.x},${c.y})`);
-      clearPendingClicks();
-      const payload = {type:'circle', xc:c.x, yc:c.y, r: r};
-      await sendPrimitive(payload);
-    }
-    return;
-  }
-
-  // ---- RETANGULO (2 cliques: canto superior-esq + canto inferior-dir) ----
-  if (tool === 'rect') {
-    if (pendingClicks.length === 0) {
-      pendingClicks.push({x, y, el: d});
-      d.classList.add('selected');
-      appendLog(`Retângulo: canto A definido em (${x},${y})`);
-    } else {
-      const a = pendingClicks[0];
-      const rx = Math.min(a.x, x);
-      const ry = Math.min(a.y, y);
-      const rw = Math.abs(x - a.x) + 1;
-      const rh = Math.abs(y - a.y) + 1;
-      appendLog(`Retângulo: canto B em (${x},${y}), pos=(${rx},${ry}) ${rw}x${rh}`);
-      clearPendingClicks();
-      const payload = {type:'rect', x:rx, y:ry, w:rw, h:rh};
-      await sendPrimitive(payload);
-    }
-    return;
-  }
-
-  // ---- TRIANGULO (3 cliques) ----
   if (tool === 'triangle') {
     if (pendingClicks.length < 2) {
       pendingClicks.push({x, y, el: d});
@@ -136,6 +188,64 @@ async function handlePixelClick(d, x, y) {
     }
     return;
   }
+}
+
+function handleCanvasPointerDown(event) {
+  const cell = getCellFromEvent(event);
+  if (!cell) return;
+  const tool = toolEl ? toolEl.value : 'point';
+  if (tool === 'point' || tool === 'triangle') return;
+
+  dragState = {
+    tool,
+    start: {x: cell.x, y: cell.y},
+    end: {x: cell.x, y: cell.y}
+  };
+  pendingClicks = [{x: cell.x, y: cell.y, el: cell.el}];
+  if (cell.el) cell.el.classList.add('selected');
+  renderGrid();
+}
+
+function handleCanvasPointerMove(event) {
+  if (!dragState) return;
+  const cell = getCellFromEvent(event);
+  if (!cell) return;
+  dragState.end = {x: cell.x, y: cell.y};
+  renderGrid();
+}
+
+async function handleCanvasPointerUp(event) {
+  if (!dragState) return;
+  const cell = getCellFromEvent(event) || dragState.end;
+  if (!cell) {
+    dragState = null;
+    clearPendingClicks();
+    renderGrid();
+    return;
+  }
+
+  const { tool, start } = dragState;
+  const end = {x: cell.x, y: cell.y};
+
+  if (tool === 'line' && (start.x !== end.x || start.y !== end.y)) {
+    appendLog(`Reta elástica: (${start.x},${start.y}) -> (${end.x},${end.y})`);
+    await sendPrimitive({type:'line', x0:start.x, y0:start.y, x1:end.x, y1:end.y});
+  } else if (tool === 'circle' && (start.x !== end.x || start.y !== end.y)) {
+    const r = Math.round(Math.hypot(end.x - start.x, end.y - start.y));
+    appendLog(`Círculo elástico: centro=(${start.x},${start.y}), raio=${r}`);
+    await sendPrimitive({type:'circle', xc:start.x, yc:start.y, r});
+  } else if (tool === 'rect' && (start.x !== end.x || start.y !== end.y)) {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const w = Math.abs(end.x - start.x) + 1;
+    const h = Math.abs(end.y - start.y) + 1;
+    appendLog(`Retângulo elástico: pos=(${x},${y}), tam=${w}x${h}`);
+    await sendPrimitive({type:'rect', x, y, w, h});
+  }
+
+  dragState = null;
+  clearPendingClicks();
+  renderGrid();
 }
 
 /**
