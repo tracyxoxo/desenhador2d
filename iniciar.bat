@@ -7,24 +7,22 @@ echo.
 
 cd /d "%~dp0"
 
-echo Verificando Python...
-
-where py >nul 2>&1
-
+echo Verificando o uv...
+where uv >nul 2>nul
 if errorlevel 1 (
-    echo.
-    echo ERRO: Python nao foi encontrado.
-    echo.
-    echo Instale o Python e marque a opcao:
-    echo "Add Python to PATH"
-    echo.
-    echo Depois execute este arquivo novamente.
+    echo ERRO: 'uv' nao encontrado no PATH.
+    echo Instale com: powershell -c "irm https://astral.sh/uv/install.ps1 ^| iex"
     pause
     exit /b 1
 )
 
-echo Python encontrado:
-py --version
+echo Sincronizando dependencias...
+uv sync
+if errorlevel 1 (
+    echo ERRO: falha ao sincronizar as dependencias.
+    pause
+    exit /b 1
+)
 
 echo.
 echo Verificando ambiente virtual...
@@ -84,6 +82,6 @@ echo.
 
 start http://127.0.0.1:8000
 
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 
 pause
